@@ -11,12 +11,13 @@ Licensed under **GPLv3**.
 
 ## Features
 
-* 🔄 **High-volume flips only** (avoids dead items)
-* 💰 Bankroll-aware position sizing
-* 📈 Automatic buy/sell price suggestions
-* 🧮 Estimated profit **after GE tax**
+* 🔄 **High-volume flips only** (avoids dead items and phantom spreads)
+* 💰 Bankroll-aware position sizing split across slots (no all-in on one item)
+* 📈 Automatic buy/sell price suggestions with latest/5m/24h sanity checks
+* 🧮 Estimated profit **after 2% GE tax** (toggle with `--no-tax`)
+* 🧹 Filters out tiny per-unit profits and stale data to reduce fake ROI spikes
 * ⏱ Uses live RuneLite-fed price data
-* ⚙️ Fully configurable from the command line
+* ⚙️ Fully configurable from the command line or via the GUI
 * 🪶 Lightweight, no database required
 
 ---
@@ -40,6 +41,7 @@ Only items with enough daily volume are shown.
 
 * Python **3.9+**
 * Internet connection
+* Optional for GUI: Tkinter (`python3-tk` on Debian/Ubuntu)
 
 ### Python Dependencies
 
@@ -54,6 +56,12 @@ pip install requests
 ```bash
 git clone https://github.com/yourusername/osrs-flipper.git
 cd osrs-flipper
+```
+
+For the GUI on Debian/Ubuntu:
+
+```bash
+sudo apt-get install python3-tk
 ```
 
 ---
@@ -78,32 +86,40 @@ python3 flip_finder.py --bank 500000
 python3 flip_finder.py --bank 500000 --n 10
 ```
 
+### Use the GUI
+
+```bash
+python3 flip_gui.py --bank 500000 --slots 5 --n 10 --ua "your contact"
+```
+
+If Tk is unavailable, run the same flags with `--text` to fall back to CLI output.
+
 ---
 
 ## Output Example
 
 ```
-- Adamant platebody
-  Buy @ 9,850 | Sell @ 10,150
-  Profit/unit: 198 gp
-  Quantity: 50
-  GP needed: 492,500
-  Estimated profit: 9,900 gp
-  Volume: 120,000/day
+- Adamant platebody (ID 1123)
+  Buy @ 9,850 | Sell @ 10,150 | Tax 101 | Profit/unit 199
+  Qty 50 (limit 125/4h) | GP needed 492,500 | Est profit 9,950 | ROI 2.02% | Source 5m
+  Volume signal: 120,000
 ```
 
 ---
 
 ## Configuration Options
 
-| Flag            | Description                                                     |
-| --------------- | --------------------------------------------------------------- |
-| `--bank`        | GP allocated to a flip                                          |
-| `--n`           | Number of results                                               |
-| `--min-vol-24h` | Minimum daily volume filter                                     |
-| `--aggr`        | Price aggressiveness (0.1 = higher margin, 0.25 = faster fills) |
-| `--no-tax`      | Ignore GE tax in calculations                                   |
-| `--ua`          | Custom User-Agent string                                        |
+| Flag                | Description                                                                                 |
+| ------------------- | ------------------------------------------------------------------------------------------- |
+| `--bank`            | GP allocated across flips                                                                   |
+| `--slots`           | How many concurrent flips to budget for (prevents going all-in on one)                      |
+| `--n`               | Number of results                                                                           |
+| `--min-vol-24h`     | Minimum daily volume filter                                                                 |
+| `--min-profit-unit` | Minimum per-unit profit (filters out 1–2 gp flips)                                          |
+| `--aggr`            | Price aggressiveness (0.1 = wider margins, 0.25 = faster fills)                             |
+| `--no-tax`          | Ignore GE tax in calculations                                                               |
+| `--ua`              | Custom User-Agent string                                                                    |
+| `--text`            | (GUI) Force text-mode output if Tk is unavailable                                           |
 
 ---
 
@@ -149,5 +165,3 @@ This tool provides **estimates**, not guarantees.
 Grand Exchange prices fluctuate, margins shift, and fills are not instant.
 
 Use at your own risk — and never flip more than you can afford to park.
-* generate a **sample LICENSE file**
-* or help you publish this to GitHub cleanly
