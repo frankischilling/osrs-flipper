@@ -89,21 +89,10 @@ def pick_price_window(item_id: int,
 
     return 0, 0, ""
 
-def main() -> int:
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--bank", type=int, default=10_000_000, help="GP you want to allocate (default 10,000,000)")
-    ap.add_argument("--n", type=int, default=10, help="How many items to print (default 10)")
-    ap.add_argument("--min-vol-24h", type=int, default=20_000, help="Min 24h volume filter (default 20,000)")
-    ap.add_argument("--aggr", type=float, default=0.15, help="Price aggressiveness (default 0.15)")
-    ap.add_argument("--slots", type=int, default=5, help="How many concurrent flips to budget for (default 5; spreads bank across slots)")
-    ap.add_argument("--min-profit-unit", type=int, default=5, help="Minimum profit per unit to keep a flip (default 5 gp)")
-    ap.add_argument("--no-tax", action="store_true", help="Ignore GE tax in profit calc")
-    ap.add_argument("--ua", type=str, default="FlipFinderScript - your@email_or_discord",
-                    help="User-Agent identification string")
-    args = ap.parse_args()
-
-    ua = args.ua
-    slots = max(1, args.slots)
+def find_flips(cfg: argparse.Namespace) -> List[Dict[str, Any]]:
+    """Compute candidate flips using the provided configuration."""
+    ua = cfg.ua
+    slots = max(1, getattr(cfg, "slots", 1))
 
     mapping = get_json("mapping", ua)  # list[dict]
     latest = get_json("latest", ua).get("data", {})  # dict[id] -> {high, low, ...}
@@ -145,7 +134,7 @@ def main() -> int:
         if high <= 0 or low <= 0 or high <= low:
             continue
 
-        buy, sell = choose_prices(low, high, args.aggr)
+        buy, sell = choose_prices(low, high, cfg.aggr)
         if sell <= buy:
             continue
 
@@ -171,9 +160,9 @@ def main() -> int:
         if abs(sell - l_hi) / l_hi > 0.20:
             continue
 
-        tax = 0 if args.no_tax else ge_tax(sell)
+        tax = 0 if cfg.no_tax else ge_tax(sell)
         profit_unit = sell - buy - tax
-        if profit_unit < args.min_profit_unit:
+        if profit_unit < cfg.min_profit_unit:
             continue
 
         # Volume: if /24h or /5m provides highPriceVolume/lowPriceVolume, use min() to estimate "two-sided" liquidity.
@@ -193,11 +182,11 @@ def main() -> int:
         vol_24h = vol_twosided if vol_twosided > 0 else safe_int(volumes.get(str(item_id), 0), 0)
 
         # Only enforce 24h volume floor when we have a 24h-like signal.
-        if vol_24h and vol_24h < args.min_vol_24h:
+        if vol_24h and vol_24h < cfg.min_vol_24h:
             continue
 
         # Suggested qty based on your bank + buy limit
-        per_slot_bank = max(1, args.bank // slots)
+        per_slot_bank = max(1, cfg.bank // slots)
         max_qty = min(limit, per_slot_bank // buy)
         if max_qty <= 0:
             continue
@@ -227,6 +216,22 @@ def main() -> int:
         })
 
     rows.sort(key=lambda r: r["score"], reverse=True)
+    return rows
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--bank", type=int, default=10_000_000, help="GP you want to allocate (default 10,000,000)")
+    ap.add_argument("--n", type=int, default=10, help="How many items to print (default 10)")
+    ap.add_argument("--min-vol-24h", type=int, default=20_000, help="Min 24h volume filter (default 20,000)")
+    ap.add_argument("--aggr", type=float, default=0.15, help="Price aggressiveness (default 0.15)")
+    ap.add_argument("--slots", type=int, default=5, help="How many concurrent flips to budget for (default 5; spreads bank across slots)")
+    ap.add_argument("--min-profit-unit", type=int, default=5, help="Minimum profit per unit to keep a flip (default 5 gp)")
+    ap.add_argument("--no-tax", action="store_true", help="Ignore GE tax in profit calc")
+    ap.add_argument("--ua", type=str, default="FlipFinderScript - your@email_or_discord",
+                    help="User-Agent identification string")
+    args = ap.parse_args()
+
+    rows = find_flips(args)
     top = rows[: args.n]
 
     print(f"\nTop {len(top)} flips (P2P) | price window: 5m avg -> 24h avg -> latest fallback | bank={args.bank:,} gp\n")
