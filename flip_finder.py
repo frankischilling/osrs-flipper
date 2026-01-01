@@ -14,7 +14,6 @@ See: https://prices.runescape.wiki/  (API is community-run, fed by RuneLite)
 from __future__ import annotations
 import argparse
 import math
-import sys
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -29,9 +28,8 @@ def get_json(path: str, ua: str) -> Dict[str, Any]:
     return r.json()
 
 def ge_tax(sell_price: int) -> int:
-    # Common GE tax model used by community tooling: 1% capped at 5,000,000
-    # (If you want "no tax", pass --no-tax)
-    return min(int(math.floor(sell_price * 0.01)), 5_000_000)
+    # GE tax is 2% capped at 5,000,000 (integer math avoids float edge cases)
+    return min((sell_price * 2) // 100, 5_000_000)
 
 def choose_prices(low: int, high: int, aggressiveness: float) -> Tuple[int, int]:
     """
@@ -52,34 +50,86 @@ def safe_int(x: Any, default: int = 0) -> int:
     except Exception:
         return default
 
+def pick_price_window(item_id: int,
+                      latest: Dict[str, Any],
+                      five_min: Dict[str, Any],
+                      daily: Dict[str, Any],
+                      now_ts: float,
+                      max_age: int = 30 * 60) -> Tuple[int, int, str]:
+    """
+    Use a single, consistent price window to avoid mixing stale highs/lows.
+    Prefer 5m averages, then 24h averages, then latest if it's fresh.
+    """
+    key = str(item_id)
+
+    fm = (five_min.get(key) or {}) if five_min else {}
+    hi = safe_int(fm.get("avgHighPrice"), 0)
+    lo = safe_int(fm.get("avgLowPrice"), 0)
+    if hi > 0 and lo > 0 and hi > lo:
+        return hi, lo, "5m"
+
+    d = (daily.get(key) or {}) if daily else {}
+    hi = safe_int(d.get("avgHighPrice"), 0)
+    lo = safe_int(d.get("avgLowPrice"), 0)
+    if hi > 0 and lo > 0 and hi > lo:
+        return hi, lo, "24h"
+
+    l = (latest.get(key) or {}) if latest else {}
+    hi = safe_int(l.get("high"), 0)
+    lo = safe_int(l.get("low"), 0)
+    hi_t = safe_int(l.get("highTime"), 0)
+    lo_t = safe_int(l.get("lowTime"), 0)
+
+    # Guard against stale or mismatched latest data causing fake spreads.
+    if hi > 0 and lo > 0 and hi > lo:
+        too_old = (hi_t and now_ts - hi_t > max_age) or (lo_t and now_ts - lo_t > max_age)
+        timestamps_far_apart = hi_t and lo_t and abs(hi_t - lo_t) > max_age
+        if not too_old and not timestamps_far_apart:
+            return hi, lo, "latest"
+
+    return 0, 0, ""
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--bank", type=int, default=10_000_000, help="GP you want to allocate (default 10,000,000)")
     ap.add_argument("--n", type=int, default=10, help="How many items to print (default 10)")
     ap.add_argument("--min-vol-24h", type=int, default=20_000, help="Min 24h volume filter (default 20,000)")
     ap.add_argument("--aggr", type=float, default=0.15, help="Price aggressiveness (default 0.15)")
+    ap.add_argument("--slots", type=int, default=5, help="How many concurrent flips to budget for (default 5; spreads bank across slots)")
+    ap.add_argument("--min-profit-unit", type=int, default=5, help="Minimum profit per unit to keep a flip (default 5 gp)")
     ap.add_argument("--no-tax", action="store_true", help="Ignore GE tax in profit calc")
     ap.add_argument("--ua", type=str, default="FlipFinderScript - your@email_or_discord",
                     help="User-Agent identification string")
     args = ap.parse_args()
 
     ua = args.ua
+    slots = max(1, args.slots)
 
     mapping = get_json("mapping", ua)  # list[dict]
     latest = get_json("latest", ua).get("data", {})  # dict[id] -> {high, low, ...}
 
-    # Prefer /24h (daily averages + volumes). If unavailable, fall back to /5m.
-    daily_mode = "24h"
+    # Price windows: prefer 5m averages; 24h averages as fallback.
+    five_min: Dict[str, Any] = {}
+    try:
+        five_min = get_json("5m", ua).get("data", {})
+    except Exception:
+        five_min = {}
+
+    daily: Dict[str, Any] = {}
     try:
         daily = get_json("24h", ua).get("data", {})
     except Exception:
-        daily_mode = "5m"
-        daily = get_json("5m", ua).get("data", {})
+        daily = {}
 
     # Extra fallback for 24h volume if needed:
-    volumes = get_json("volumes", ua).get("data", {})
+    volumes: Dict[str, Any] = {}
+    try:
+        volumes = get_json("volumes", ua).get("data", {})
+    except Exception:
+        volumes = {}
 
     rows: List[Dict[str, Any]] = []
+    now_ts = time.time()
 
     for item in mapping:
         if not item.get("members", False):
@@ -91,12 +141,7 @@ def main() -> int:
         if limit <= 0:
             continue
 
-        l = latest.get(str(item_id))
-        if not l:
-            continue
-
-        high = safe_int(l.get("high"))
-        low = safe_int(l.get("low"))
+        high, low, price_src = pick_price_window(item_id, latest, five_min, daily, now_ts)
         if high <= 0 or low <= 0 or high <= low:
             continue
 
@@ -104,9 +149,31 @@ def main() -> int:
         if sell <= buy:
             continue
 
+        # Cross-check against fresh latest to avoid phantom spreads.
+        l_latest = (latest.get(str(item_id)) or {})
+        l_hi = safe_int(l_latest.get("high"), 0)
+        l_lo = safe_int(l_latest.get("low"), 0)
+        hi_t = safe_int(l_latest.get("highTime"), 0)
+        lo_t = safe_int(l_latest.get("lowTime"), 0)
+
+        max_age = 30 * 60
+        fresh_latest = (
+            l_hi > 0 and l_lo > 0 and l_hi > l_lo and
+            (not hi_t or now_ts - hi_t <= max_age) and
+            (not lo_t or now_ts - lo_t <= max_age)
+        )
+        if not fresh_latest:
+            continue
+
+        # Skip if suggested prices are too far from latest (tune 0.20 as needed).
+        if abs(buy - l_lo) / l_lo > 0.20:
+            continue
+        if abs(sell - l_hi) / l_hi > 0.20:
+            continue
+
         tax = 0 if args.no_tax else ge_tax(sell)
         profit_unit = sell - buy - tax
-        if profit_unit <= 0:
+        if profit_unit < args.min_profit_unit:
             continue
 
         # Volume: if /24h or /5m provides highPriceVolume/lowPriceVolume, use min() to estimate "two-sided" liquidity.
@@ -115,16 +182,23 @@ def main() -> int:
         vol_lo = safe_int(d.get("lowPriceVolume"), 0)
         vol_twosided = min(vol_hi, vol_lo) if (vol_hi and vol_lo) else 0
 
+        # If 24h volumes are missing, fall back to 5m two-sided as a weak signal.
+        if vol_twosided == 0:
+            fm = five_min.get(str(item_id), {})
+            vol_hi_fm = safe_int(fm.get("highPriceVolume"), 0)
+            vol_lo_fm = safe_int(fm.get("lowPriceVolume"), 0)
+            vol_twosided = min(vol_hi_fm, vol_lo_fm) if (vol_hi_fm and vol_lo_fm) else 0
+
         # If that’s missing, use /volumes (24h-ish total volume by id).
         vol_24h = vol_twosided if vol_twosided > 0 else safe_int(volumes.get(str(item_id), 0), 0)
 
-        if daily_mode == "24h":
-            # /24h volume is already 24h; /5m is short-window, so don’t enforce huge min-vol in that case.
-            if vol_24h < args.min_vol_24h:
-                continue
+        # Only enforce 24h volume floor when we have a 24h-like signal.
+        if vol_24h and vol_24h < args.min_vol_24h:
+            continue
 
         # Suggested qty based on your bank + buy limit
-        max_qty = min(limit, args.bank // buy)
+        per_slot_bank = max(1, args.bank // slots)
+        max_qty = min(limit, per_slot_bank // buy)
         if max_qty <= 0:
             continue
 
@@ -132,8 +206,8 @@ def main() -> int:
         est_profit = profit_unit * max_qty
         roi = est_profit / gp_needed if gp_needed else 0.0
 
-        # Rank score: prioritize profit *and* liquidity (volume), while still rewarding ROI.
-        score = profit_unit * max_qty * (1.0 + min(1.0, roi * 5.0))
+        # Rank score: profit weighted by volume (log) to favor trades that actually move.
+        score = est_profit * (1.0 + math.log1p(vol_24h) / 10.0)
 
         rows.append({
             "name": item.get("name", f"ID {item_id}"),
@@ -149,16 +223,17 @@ def main() -> int:
             "limit_4h": limit,
             "vol": vol_24h,
             "score": score,
+            "price_src": price_src,
         })
 
     rows.sort(key=lambda r: r["score"], reverse=True)
     top = rows[: args.n]
 
-    print(f"\nTop {len(top)} flips (P2P) | price window: /latest + /{daily_mode} | bank={args.bank:,} gp\n")
+    print(f"\nTop {len(top)} flips (P2P) | price window: 5m avg -> 24h avg -> latest fallback | bank={args.bank:,} gp\n")
     for r in top:
         print(f"- {r['name']} (ID {r['id']})")
         print(f"  Buy @ {r['buy']:,} | Sell @ {r['sell']:,} | Tax {r['tax']:,} | Profit/unit {r['profit_unit']:,}")
-        print(f"  Qty {r['qty']:,} (limit {r['limit_4h']:,}/4h) | GP needed {r['gp_needed']:,} | Est profit {r['est_profit']:,} | ROI {r['roi_pct']:.2f}%")
+        print(f"  Qty {r['qty']:,} (limit {r['limit_4h']:,}/4h) | GP needed {r['gp_needed']:,} | Est profit {r['est_profit']:,} | ROI {r['roi_pct']:.2f}% | Source {r['price_src']}")
         print(f"  Volume signal: {r['vol']:,}\n")
 
     if not top:
