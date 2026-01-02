@@ -11,14 +11,16 @@ Licensed under **GPLv3**.
 
 ## Features
 
-* 🔄 **High-volume flips only** (avoids dead items and phantom spreads)
-* 💰 Bankroll-aware position sizing split across slots (no all-in on one item)
-* 📈 Automatic buy/sell price suggestions with latest/5m/24h sanity checks
-* 🧮 Estimated profit **after 2% GE tax** (toggle with `--no-tax`)
-* 🧹 Filters out tiny per-unit profits and stale data to reduce fake ROI spikes
-* ⏱ Uses live RuneLite-fed price data
-* ⚙️ Fully configurable from the command line or via the GUI
-* 🪶 Lightweight, no database required
+- 🔄 **High-volume flips only** (avoids dead items and phantom spreads)
+- 💰 Bankroll-aware position sizing split across slots (no all-in on one item)
+- 📈 Automatic buy/sell price suggestions with latest/5m/24h sanity checks
+- 🧮 Estimated profit **after 2% GE tax** (toggle with `--no-tax`)
+- 🧹 Filters out tiny per-unit profits and stale data to reduce fake ROI spikes
+- 🔥 High alch info: HA value, HA floor (break-even buy), HA net (safety bail)
+- ⏳ Risk/time cues: cycles/day, ETA to clear, profit/hr, participation %, daily caps
+- 🎛️ Extra filters and safety checks: min ROI, min profit/hr, max ETA, HA-safe only, min HA net, min cycles/day, hide ∞ ETA
+- 🖥️ GUI with live search, column picker, charts (selectable metrics), CSV export/copy, auto-refresh; CLI and text mode still available
+- 🪶 Lightweight, no database required; uses live RuneLite-fed price data
 
 ---
 
@@ -100,26 +102,29 @@ If Tk is unavailable, run the same flags with `--text` to fall back to CLI outpu
 
 ```
 - Adamant platebody (ID 1123)
-  Buy @ 9,850 | Sell @ 10,150 | Tax 101 | Profit/unit 199
-  Qty 50 (limit 125/4h) | GP needed 492,500 | Est profit 9,950 | ROI 2.02% | Source 5m
-  Volume signal: 120,000
+  Buy @ 9,850 | Sell @ 10,150 | Tax 203 | Profit/unit 97
+  Qty 50 (limit 125/4h) | GP needed 492,500 | Est profit 4,850 | ROI 0.98% | Source 5m
+  Vol 120,000 | Cycles/day 3.8 | Daily est 18,430 | Daily cap 48,500 | ETA 1.0h | Profit/hr 4,850.00
+  HA value 9,984 | HA floor 9,804 | HA net -46
 ```
 
 ---
 
 ## Configuration Options
 
-| Flag                | Description                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------------- |
-| `--bank`            | GP allocated across flips                                                                   |
-| `--slots`           | How many concurrent flips to budget for (prevents going all-in on one)                      |
-| `--n`               | Number of results                                                                           |
-| `--min-vol-24h`     | Minimum daily volume filter                                                                 |
-| `--min-profit-unit` | Minimum per-unit profit (filters out 1–2 gp flips)                                          |
-| `--aggr`            | Price aggressiveness (0.1 = wider margins, 0.25 = faster fills)                             |
-| `--no-tax`          | Ignore GE tax in calculations                                                               |
-| `--ua`              | Custom User-Agent string                                                                    |
-| `--text`            | (GUI) Force text-mode output if Tk is unavailable                                           |
+| Flag                | Description                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `--bank`            | GP allocated across flips                                                                     |
+| `--slots`           | How many concurrent flips to budget for (prevents going all-in on one)                        |
+| `--n`               | Number of results                                                                             |
+| `--min-vol-24h`     | Minimum daily volume filter                                                                   |
+| `--min-profit-unit` | Minimum per-unit profit (filters out 1–2 gp flips)                                            |
+| `--aggr`            | Price aggressiveness (0.1 = wider margins, 0.25 = faster fills)                               |
+| `--ha-rune-cost`    | Nature rune cost used for high-alch fallback math (default 180)                               |
+| `--require-ha-floor`| Only include flips where suggested buy is ≤ HA break-even                                     |
+| `--no-tax`          | Ignore GE tax in calculations                                                                 |
+| `--ua`              | Custom User-Agent string                                                                      |
+| `--text`            | (GUI) Force text-mode output if Tk is unavailable                                             |
 
 ---
 
