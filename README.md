@@ -170,3 +170,39 @@ This tool provides **estimates**, not guarantees.
 Grand Exchange prices fluctuate, margins shift, and fills are not instant.
 
 Use at your own risk — and never flip more than you can afford to park.
+
+---
+
+## Glossary (GUI/CLI Terms)
+
+- **Buy / Sell**: Suggested prices inside the spread, based on aggressiveness and latest/5m/24h sanity checks.
+- **Profit/u**: Profit per unit after tax (unless `--no-tax`).
+- **Tax**: GE tax (2%, capped at 5m) applied to the sell price.
+- **Qty**: Suggested quantity using your bank and the item’s buy limit, spread across your slots.
+- **GP needed**: Total GP required for the suggested quantity at the suggested buy price.
+- **Est profit**: Total profit for the suggested quantity (profit/u × qty).
+- **ROI %**: Return on investment for the suggested trade (est profit ÷ GP needed).
+- **Vol**: 24h-ish two-sided volume (or best available fallback) to gauge liquidity.
+- **Limit/4h**: GE buy limit per 4 hours for the item.
+- **Cycles/d**: Estimated number of times you can hit the buy limit in a day (vol vs limit, capped at 6).
+- **Daily est**: Bank-limited expected daily profit (cycles/d × est profit).
+- **Daily cap**: Theoretical daily profit if bank were unlimited (volume + limit constrained).
+- **ETA / Hours to clear**: Estimated time to clear your suggested quantity based on volume.
+- **Profit/hr**: Profit divided by ETA; lower volume increases ETA and reduces this number.
+- **Participation %**: (Not always shown in GUI) How much of daily volume your position represents; lower is safer.
+- **HA value**: High Alchemy value (gp received if you alch the item).
+- **HA floor**: HA value minus rune cost (break-even buy price for alching).
+- **HA net**: HA floor minus suggested buy; positive means HA is a safe bailout.
+- **Price src**: Which price window was used (5m, 24h, or latest).
+- **Aggressiveness (`--aggr`)**: Fraction of spread to move inside low/high; higher fills faster with smaller margin.
+- **Slots**: How many concurrent flips to budget for; prevents going all-in on one item.
+- **Filters (GUI)**:
+  - **Min ROI %**: Drop items below this ROI.
+  - **Min Profit/hr**: Drop items below this profit-per-hour-to-clear.
+  - **Max ETA h**: Drop items whose ETA exceeds this number of hours.
+  - **Min HA net**: Require at least this net gp from HA as a safety floor.
+  - **Min Cycles/d**: Require at least this many limit cycles per day.
+  - **Hide ∞ ETA**: Exclude items where ETA is effectively infinite (no volume).
+- **HA-safe**: When the suggested buy is ≤ HA floor (you can alch without loss).
+- **Auto-refresh** (GUI): Periodically rerun and refresh results.
+- **Column picker** (GUI): Show/hide data columns; name stays in the tree column.
